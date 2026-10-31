@@ -1,4 +1,4 @@
-# YottaFlex Supply-Chain Traceability & Recall Simulation
+# Supply-Chain Traceability & Recall Simulation
 
 A deterministic, high-integrity supply-chain simulation engine modeling multi-echelon pharmaceutical manufacturing, batch genealogy, warehouse inventory movements, and downstream customer distribution.
 
