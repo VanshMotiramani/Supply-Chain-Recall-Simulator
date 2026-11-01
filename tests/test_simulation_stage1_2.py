@@ -219,6 +219,132 @@ class TestGroundTruthRegistry:
         with pytest.raises(TypeError):
             default_rec.metadata["foo"] = "bar"  # type: ignore[index]
 
+    def test_anomaly_record_deep_metadata_immutability(self):
+        """
+        Verify that nested structures (mappings, lists, sets) inside AnomalyRecord.metadata
+        are recursively frozen:
+          - Mutation of original input after construction leaves metadata untouched.
+          - Mutation attempts through record.metadata on nested mappings or lists raise exceptions.
+          - Non-mapping metadata raises TypeError.
+        """
+        nested_items = ["lot-1", "lot-2"]
+        nested_tags = {"urgent", "tier-1"}
+        nested_subdict = {"officer": "QA-Lead", "counts": [10, 20]}
+        input_meta = {
+            "batch": "B-100",
+            "items": nested_items,
+            "tags": nested_tags,
+            "audit": nested_subdict,
+        }
+
+        rec = AnomalyRecord(
+            anomaly_id="ANOM-DEEP-01",
+            edge_case_code="EC-1",
+            anomaly_type=AnomalyType.MISSING_INPUT_LOT,
+            target_entity_type="ProductionOrder",
+            target_entity_id="WO-2026-000001",
+            metadata=input_meta,
+        )
+
+        # 1. Verify read access works seamlessly
+        assert rec.metadata["batch"] == "B-100"
+        assert rec.metadata["items"] == ("lot-1", "lot-2")
+        assert rec.metadata["tags"] == frozenset({"urgent", "tier-1"})
+        assert rec.metadata["audit"]["officer"] == "QA-Lead"
+        assert rec.metadata["audit"]["counts"] == (10, 20)
+
+        # 2. Mutate original inputs externally
+        nested_items.append("lot-3")
+        nested_tags.add("new-tag")
+        nested_subdict["officer"] = "HACKED"
+        nested_subdict["counts"].append(30)
+        input_meta["batch"] = "B-200"
+
+        # Assert rec.metadata is 100% unaffected
+        assert rec.metadata["batch"] == "B-100"
+        assert rec.metadata["items"] == ("lot-1", "lot-2")
+        assert rec.metadata["tags"] == frozenset({"urgent", "tier-1"})
+        assert rec.metadata["audit"]["officer"] == "QA-Lead"
+        assert rec.metadata["audit"]["counts"] == (10, 20)
+
+        # 3. Direct mutation attempts through rec.metadata
+        with pytest.raises(TypeError):
+            rec.metadata["audit"]["officer"] = "NEW"  # type: ignore[index]
+
+        with pytest.raises(AttributeError):
+            rec.metadata["items"].append("lot-4")  # type: ignore[union-attr]
+        with pytest.raises(TypeError):
+            rec.metadata["items"][0] = "MODIFIED"  # type: ignore[index]
+
+        with pytest.raises(AttributeError):
+            rec.metadata["tags"].add("forbidden")  # type: ignore[union-attr]
+
+        # 4. Invalid metadata type raises TypeError
+        with pytest.raises(TypeError, match="metadata must be a mapping"):
+            AnomalyRecord(
+                anomaly_id="ANOM-INVALID-TYPE",
+                edge_case_code="EC-1",
+                anomaly_type=AnomalyType.MISSING_INPUT_LOT,
+                target_entity_type="ProductionOrder",
+                target_entity_id="WO-1",
+                metadata=["not", "a", "mapping"],  # type: ignore[arg-type]
+            )
+
+        # 5. Unsupported mutable and custom types raise TypeError
+        # (a) Bytearray inside metadata
+        with pytest.raises(TypeError, match="Unsupported metadata value type: bytearray"):
+            AnomalyRecord(
+                anomaly_id="ANOM-MUTABLE-BYTEARRAY",
+                edge_case_code="EC-1",
+                anomaly_type=AnomalyType.MISSING_INPUT_LOT,
+                target_entity_type="ProductionOrder",
+                target_entity_id="WO-1",
+                metadata={"raw_bytes": bytearray(b"mutable")},
+            )
+
+        # (b) Custom class instance
+        class CustomClass:
+            def __init__(self, val: str):
+                self.val = val
+
+        with pytest.raises(TypeError, match="Unsupported metadata value type: CustomClass"):
+            AnomalyRecord(
+                anomaly_id="ANOM-CUSTOM-CLASS",
+                edge_case_code="EC-1",
+                anomaly_type=AnomalyType.MISSING_INPUT_LOT,
+                target_entity_type="ProductionOrder",
+                target_entity_id="WO-1",
+                metadata={"obj": CustomClass("foo")},
+            )
+
+        # (c) Custom hashable class with mutable state
+        class HashableMutable:
+            def __init__(self, val: str):
+                self.val = val
+            def __hash__(self):
+                return 42
+
+        with pytest.raises(TypeError, match="Unsupported metadata value type: HashableMutable"):
+            AnomalyRecord(
+                anomaly_id="ANOM-HASHABLE-MUTABLE",
+                edge_case_code="EC-1",
+                anomaly_type=AnomalyType.MISSING_INPUT_LOT,
+                target_entity_type="ProductionOrder",
+                target_entity_id="WO-1",
+                metadata={"obj": HashableMutable("foo")},
+            )
+
+        # (d) Non-primitive mapping key
+        with pytest.raises(TypeError, match="Unsupported metadata key type"):
+            AnomalyRecord(
+                anomaly_id="ANOM-BAD-KEY",
+                edge_case_code="EC-1",
+                anomaly_type=AnomalyType.MISSING_INPUT_LOT,
+                target_entity_type="ProductionOrder",
+                target_entity_id="WO-1",
+                metadata={("tuple", "key"): "value"},  # type: ignore[dict-item]
+            )
+
 
 # ---------------------------------------------------------------------------
 # 3. Discrepancy Findings and Report Tests

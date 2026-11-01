@@ -11,9 +11,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from enum import StrEnum
+from datetime import date, datetime
+from decimal import Decimal
+from enum import Enum, StrEnum
 from types import MappingProxyType
 from typing import Any, Optional
+from uuid import UUID
 
 
 class AnomalyType(StrEnum):
@@ -22,6 +25,53 @@ class AnomalyType(StrEnum):
     QUANTITY_OVER_SHIPMENT = "QUANTITY_OVER_SHIPMENT"                      # EC-2
     MISSED_CUSTOMER_NOTIFICATION = "MISSED_CUSTOMER_NOTIFICATION"          # EC-3
     UNQUARANTINED_RECALLED_INVENTORY = "UNQUARANTINED_RECALLED_INVENTORY"  # EC-4
+
+
+SUPPORTED_IMMUTABLE_PRIMITIVES = (
+    str,
+    int,
+    float,
+    bool,
+    bytes,
+    type(None),
+    date,
+    datetime,
+    UUID,
+    Decimal,
+    Enum,
+)
+
+
+def _deep_freeze(val: Any) -> Any:
+    """
+    Recursively freeze mappings, sequences, and sets into immutable equivalents:
+      - Mapping -> MappingProxyType of recursively frozen keys/values
+      - list / tuple -> tuple of recursively frozen items
+      - set / frozenset -> frozenset of recursively frozen items
+      - Supported immutable primitives -> preserved
+      - Unsupported mutable or arbitrary custom types -> raises TypeError
+    """
+    if isinstance(val, Mapping):
+        frozen_dict = {}
+        for k, v in val.items():
+            if not isinstance(k, SUPPORTED_IMMUTABLE_PRIMITIVES):
+                raise TypeError(
+                    f"Unsupported metadata key type: {type(k).__name__}; "
+                    f"keys must be immutable primitives"
+                )
+            frozen_dict[k] = _deep_freeze(v)
+        return MappingProxyType(frozen_dict)
+    elif isinstance(val, (list, tuple)):
+        return tuple(_deep_freeze(item) for item in val)
+    elif isinstance(val, (set, frozenset)):
+        return frozenset(_deep_freeze(item) for item in val)
+    elif isinstance(val, SUPPORTED_IMMUTABLE_PRIMITIVES):
+        return val
+    else:
+        raise TypeError(
+            f"Unsupported metadata value type: {type(val).__name__}; "
+            f"metadata values must be immutable primitives or supported containers (Mapping, list, tuple, set, frozenset)"
+        )
 
 
 @dataclass(frozen=True)
@@ -37,7 +87,7 @@ class AnomalyRecord:
         target_entity_id: Primary key of the targeted entity.
         intended_quantity: Injected quantity delta or count (e.g., 15 for EC-2 excess quantity).
         expected_outcome: Description of the expected system state / discrepancy.
-        metadata: Read-only mapping of additional contextual attributes.
+        metadata: Deeply immutable, read-only mapping of additional contextual attributes.
     """
     anomaly_id: str
     edge_case_code: str
@@ -56,9 +106,12 @@ class AnomalyRecord:
         if not self.target_entity_id:
             raise ValueError("target_entity_id cannot be empty")
 
-        # Defensively copy and wrap in read-only MappingProxyType for complete immutability
         raw_meta = self.metadata if self.metadata is not None else {}
-        object.__setattr__(self, "metadata", MappingProxyType(dict(raw_meta)))
+        if not isinstance(raw_meta, Mapping):
+            raise TypeError(f"metadata must be a mapping, got {type(raw_meta).__name__}")
+
+        # Recursively freeze all nested mappings, sequences, and sets into read-only structures
+        object.__setattr__(self, "metadata", _deep_freeze(raw_meta))
 
 
 class GroundTruthRegistry:

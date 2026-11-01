@@ -11,6 +11,7 @@ The Supply-Chain Recall Simulator provides an authoritative, referenceable domai
 - **Manufacturing Execution:** Work orders (`WO-2026-...`) with deterministic yield and scrap accounting, bill of materials (BOM) lot consumption records, and finished goods lots (`FINLOT-2026-...`).
 - **Downstream Logistics:** Outbound multi-line shipments (`SHP-2026-...`), customer delivery records (`DEL-2026-...`), and active customer facilities (`CUST-...`).
 - **Double-Entry Inventory Ledger:** Authoritative stock tracking (`InventoryLedger` and `InventoryMovement`) enforcing physical on-hand, quarantined, available, and shipped balances across warehouse facilities (`WHS-...`).
+- **Simulation & Pure Traceability:** Isolated runtime simulation datasets (`SimulationDataset`), deeply immutable ground truth registry (`GroundTruthRegistry`), and pure, read-only bidirectional genealogy traversals across suppliers, production orders, finished lots, shipments, and customers.
 
 > **Note on Data and Notifications:** All entities, batches, and transactions are purely synthetic, generated deterministically from seeded pseudo-random streams. Notification channels (`EMAIL`, `SMS`, `EDI`, `PORTAL`) and actions in the domain model represent simulated state tracking only; no real external networks or messaging providers are contacted.
 
@@ -24,9 +25,10 @@ The Supply-Chain Recall Simulator provides an authoritative, referenceable domai
 | **Block 2** | Master Data Generators (Suppliers, Products, BOMs, Warehouses, Customers) | **Complete** | 23 passed |
 | **Block 3** | Production Orders, Yield Accounting, Raw Lots, Finished Lots, Expiry Queues | **Complete** | 22 passed |
 | **Block 4** | Downstream Distribution, Multi-Line Shipments, Deliveries, Inventory Tracking | **Complete** | 36 passed |
-| **Block 5** | Recall Simulation Engine, Anomaly Injection (EC-1 to EC-4), Detection & Metrics | **Pending** | *Scheduled next* |
+| **Block 5 (Stages 1–2)** | Simulation Config, Ground Truth Registry, Baseline Isolation, Pure Traceability | **Complete** | 23 passed (focused local run) |
+| **Block 5 (Stages 3–6)** | Anomaly Injection (EC-1 to EC-4), Discrepancy Detectors, Recall Resolution, Metrics | **Pending** | *Scheduled next* |
 
-> **Current Boundary:** Recall anomaly injection (EC-1 through EC-4), automated discrepancy detection, quarantine remediation, and recall KPI metrics are not yet implemented and will be delivered in Block 5.
+> **Current Boundary:** Block 5 Stages 1 and 2 are complete (providing configuration, deeply immutable ground truth registry, baseline isolation containers, and pure bidirectional traceability functions). Recall anomaly injection (EC-1 through EC-4), automated discrepancy detection, quarantine remediation, and recall KPI metrics are not yet implemented and will be delivered in Stages 3–6.
 
 ---
 
@@ -81,16 +83,17 @@ make install
 
 ## 5. Running the Test Suite
 
-The test suite validates data models, lifecycle transitions, ID formatting, FIFO allocation, inventory reconciliation, and deterministic reproducibility:
+The test suite validates data models, lifecycle transitions, ID formatting, FIFO allocation, inventory reconciliation, deterministic reproducibility, deep baseline isolation, and pure genealogy traversals:
 
 ```powershell
-# Run the complete test suite (233 tests)
+# Run the complete test suite (last completed full-suite run: 255 passed; full suite has not been rerun for the 256th test)
 pytest
 
 # Run with verbose output
 pytest -v
 
 # Run targeted test modules:
+pytest tests/test_simulation_stage1_2.py -v       # Block 5 Stage 1–2 simulation & traceability tests (23 passed in focused local run)
 pytest tests/test_distribution_generation.py -v   # Block 4 distribution tests (36 tests)
 pytest tests/test_production_generation.py -v     # Block 3 production tests (22 tests)
 pytest tests/test_generators.py -v                # Block 2 master data tests (23 tests)
@@ -117,10 +120,17 @@ src/supply_chain/
 │   ├── production_pipeline.py # Manufacturing orders, raw lots, yield accounting, finished lots
 │   ├── distribution.py # Warehouse placement, shipments, customer deliveries, ledger movements
 │   └── config.py       # Configuration containers and dataset dataclasses
+└── simulation/         # Recall simulation runtime, ground truth, baseline isolation, and pure traceability (Block 5 Stages 1–2)
+    ├── config.py       # RecallSimulationConfig
+    ├── ground_truth.py # AnomalyRecord (deeply immutable metadata) and GroundTruthRegistry
+    ├── models.py       # SimulationDataset, create_simulation_dataset, DiscrepancyReport
+    └── traceability.py # Pure, read-only forward and backward genealogy traversals
 ```
 
 For detailed specifications and architectural documentation, see:
 - [`Requirement Analysis.pdf`](Requirement%20Analysis.pdf): Formal 26-page system requirement analysis and business rules.
+- [`docs/recall-simulation.md`](docs/recall-simulation.md): Recall simulation architecture, deeply immutable ground truth registry, baseline isolation proof, and pure genealogy algorithms.
 - [`docs/generators.md`](docs/generators.md): Master data catalog, supplier assignment, and dosage-form BOM composition.
 - [`docs/production-generation.md`](docs/production-generation.md): Production orders, yield/scrap formulas, and FIFO raw material expiry allocation.
 - [`docs/distribution-generation.md`](docs/distribution-generation.md): Downstream distribution, delivery line items, and authoritative inventory accounting.
+- [`docs/ai-assistance-log.md`](docs/ai-assistance-log.md): Disclosure of AI-assisted engineering, prompt records, human reviews, and testing outcomes.
